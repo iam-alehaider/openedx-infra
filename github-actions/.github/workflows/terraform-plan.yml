@@ -1,0 +1,251 @@
+
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'live/**'
+      - 'modules/**'
+      - 'account-wide/**'
+
+permissions:
+  id-token: write       # Required for OIDC authentication to AWS
+  contents: read
+  pull-requests: write  # Required to post plan output as PR comment
+
+env:
+  TF_VERSION: "1.7.5"
+  AWS_REGION: "us-east-1"
+
+jobs:
+  # ── Detect which layers changed ────────────────────────────────────
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      dev_networking:   ${{ steps.filter.outputs.dev_networking }}
+      dev_platform:     ${{ steps.filter.outputs.dev_platform }}
+      dev_data:         ${{ steps.filter.outputs.dev_data }}
+      dev_storage:      ${{ steps.filter.outputs.dev_storage }}
+      dev_edge:         ${{ steps.filter.outputs.dev_edge }}
+      staging_networking: ${{ steps.filter.outputs.staging_networking }}
+      staging_platform:   ${{ steps.filter.outputs.staging_platform }}
+      staging_data:       ${{ steps.filter.outputs.staging_data }}
+      staging_storage:    ${{ steps.filter.outputs.staging_storage }}
+      staging_edge:       ${{ steps.filter.outputs.staging_edge }}
+      prod_networking:  ${{ steps.filter.outputs.prod_networking }}
+      prod_platform:    ${{ steps.filter.outputs.prod_platform }}
+      prod_data:        ${{ steps.filter.outputs.prod_data }}
+      prod_storage:     ${{ steps.filter.outputs.prod_storage }}
+      prod_edge:        ${{ steps.filter.outputs.prod_edge }}
+      modules:          ${{ steps.filter.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            dev_networking:
+              - 'live/dev/networking/**'
+              - 'modules/vpc/**'
+            dev_platform:
+              - 'live/dev/platform/**'
+              - 'modules/eks/**'
+              - 'modules/efs/**'
+            dev_data:
+              - 'live/dev/data/**'
+              - 'modules/rds/**'
+              - 'modules/elasticache/**'
+              - 'modules/opensearch/**'
+              - 'modules/secrets/**'
+              - 'modules/monitoring/**'
+            dev_storage:
+              - 'live/dev/storage/**'
+              - 'modules/platform-storage/**'
+            dev_edge:
+              - 'live/dev/edge/**'
+              - 'modules/cdn-cloudfront/**'
+              - 'modules/dns-route53/**'
+              - 'modules/maintenance/**'
+            staging_networking:
+              - 'live/staging/networking/**'
+              - 'modules/vpc/**'
+            staging_platform:
+              - 'live/staging/platform/**'
+              - 'modules/eks/**'
+              - 'modules/efs/**'
+            staging_data:
+              - 'live/staging/data/**'
+              - 'modules/rds/**'
+              - 'modules/elasticache/**'
+              - 'modules/opensearch/**'
+              - 'modules/secrets/**'
+              - 'modules/monitoring/**'
+            staging_storage:
+              - 'live/staging/storage/**'
+              - 'modules/platform-storage/**'
+            staging_edge:
+              - 'live/staging/edge/**'
+              - 'modules/cdn-cloudfront/**'
+              - 'modules/dns-route53/**'
+              - 'modules/maintenance/**'
+            prod_networking:
+              - 'live/prod/networking/**'
+              - 'modules/vpc/**'
+            prod_platform:
+              - 'live/prod/platform/**'
+              - 'modules/eks/**'
+              - 'modules/efs/**'
+            prod_data:
+              - 'live/prod/data/**'
+              - 'modules/rds/**'
+              - 'modules/elasticache/**'
+              - 'modules/opensearch/**'
+              - 'modules/secrets/**'
+              - 'modules/monitoring/**'
+            prod_storage:
+              - 'live/prod/storage/**'
+              - 'modules/platform-storage/**'
+            prod_edge:
+              - 'live/prod/edge/**'
+              - 'modules/cdn-cloudfront/**'
+              - 'modules/dns-route53/**'
+              - 'modules/maintenance/**'
+            modules:
+              - 'modules/**'
+
+  # ── Reusable plan logic via matrix ─────────────────────────────────
+  plan:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    # Run for any layer that changed, OR if shared modules changed
+    if: |
+      needs.detect-changes.outputs.modules == 'true' ||
+      needs.detect-changes.outputs.dev_networking == 'true' ||
+      needs.detect-changes.outputs.dev_platform == 'true' ||
+      needs.detect-changes.outputs.dev_data == 'true' ||
+      needs.detect-changes.outputs.dev_storage == 'true' ||
+      needs.detect-changes.outputs.dev_edge == 'true' ||
+      needs.detect-changes.outputs.staging_networking == 'true' ||
+      needs.detect-changes.outputs.staging_platform == 'true' ||
+      needs.detect-changes.outputs.staging_data == 'true' ||
+      needs.detect-changes.outputs.staging_storage == 'true' ||
+      needs.detect-changes.outputs.staging_edge == 'true' ||
+      needs.detect-changes.outputs.prod_networking == 'true' ||
+      needs.detect-changes.outputs.prod_platform == 'true' ||
+      needs.detect-changes.outputs.prod_data == 'true' ||
+      needs.detect-changes.outputs.prod_storage == 'true' ||
+      needs.detect-changes.outputs.prod_edge == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: dev
+            layer: networking
+            changed: ${{ needs.detect-changes.outputs.dev_networking }}
+          - env: dev
+            layer: platform
+            changed: ${{ needs.detect-changes.outputs.dev_platform }}
+          - env: dev
+            layer: data
+            changed: ${{ needs.detect-changes.outputs.dev_data }}
+          - env: dev
+            layer: storage
+            changed: ${{ needs.detect-changes.outputs.dev_storage }}
+          - env: dev
+            layer: edge
+            changed: ${{ needs.detect-changes.outputs.dev_edge }}
+          - env: staging
+            layer: networking
+            changed: ${{ needs.detect-changes.outputs.staging_networking }}
+          - env: staging
+            layer: platform
+            changed: ${{ needs.detect-changes.outputs.staging_platform }}
+          - env: staging
+            layer: data
+            changed: ${{ needs.detect-changes.outputs.staging_data }}
+          - env: staging
+            layer: storage
+            changed: ${{ needs.detect-changes.outputs.staging_storage }}
+          - env: staging
+            layer: edge
+            changed: ${{ needs.detect-changes.outputs.staging_edge }}
+          - env: prod
+            layer: networking
+            changed: ${{ needs.detect-changes.outputs.prod_networking }}
+          - env: prod
+            layer: platform
+            changed: ${{ needs.detect-changes.outputs.prod_platform }}
+          - env: prod
+            layer: data
+            changed: ${{ needs.detect-changes.outputs.prod_data }}
+          - env: prod
+            layer: storage
+            changed: ${{ needs.detect-changes.outputs.prod_storage }}
+          - env: prod
+            layer: edge
+            changed: ${{ needs.detect-changes.outputs.prod_edge }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-${{ matrix.env }}-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: live/${{ matrix.env }}/${{ matrix.layer }}
+        run: terraform init -input=false
+
+      - name: Terraform Validate
+        working-directory: live/${{ matrix.env }}/${{ matrix.layer }}
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: live/${{ matrix.env }}/${{ matrix.layer }}
+        run: |
+          terraform plan \
+            -input=false \
+            -no-color \
+            -out=tfplan \
+            2>&1 | tee plan_output.txt
+          echo "exit_code=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Post Plan to PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync(
+              'live/${{ matrix.env }}/${{ matrix.layer }}/plan_output.txt', 'utf8'
+            );
+            const truncated = planOutput.length > 60000
+              ? planOutput.substring(0, 60000) + '\n... [truncated]'
+              : planOutput;
+            const status = '${{ steps.plan.outputs.exit_code }}' === '0' ? '✅' : '❌';
+            const body = `## ${status} Terraform Plan: \`${{ matrix.env }}/${{ matrix.layer }}\`
+            <details><summary>Show Plan</summary>
+
+            \`\`\`hcl
+            ${truncated}
+            \`\`\`
+            </details>`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+      - name: Fail if plan errored
+        if: steps.plan.outputs.exit_code != '0'
+        run: exit 1

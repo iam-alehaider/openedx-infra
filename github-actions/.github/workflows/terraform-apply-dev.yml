@@ -1,0 +1,130 @@
+name: Terraform Apply — Dev
+ 
+# Runs automatically on every merge to main for the dev environment.
+# Dev is the only environment with auto-apply. Staging and prod require
+# manual approval via workflow_dispatch (see terraform-apply-prod.yml).
+ 
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'live/dev/**'
+      - 'modules/**'
+ 
+permissions:
+  id-token: write
+  contents: read
+ 
+env:
+  TF_VERSION: "1.7.5"
+  AWS_REGION: "us-east-1"
+ 
+jobs:
+  # ── Layers must apply in dependency order ──────────────────────────
+  # networking → (platform + storage in parallel) → data → edge
+ 
+  apply-networking:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+ 
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-dev-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+
+
+
+      - name: Init
+        working-directory: live/dev/networking
+        run: terraform init -input=false
+ 
+      - name: Apply
+        working-directory: live/dev/networking
+        run: terraform apply -input=false -auto-approve
+ 
+  apply-platform:
+    needs: apply-networking
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-dev-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init
+        working-directory: live/dev/platform
+        run: terraform init -input=false
+      - name: Apply
+        working-directory: live/dev/platform
+        run: terraform apply -input=false -auto-approve
+ 
+  apply-storage:
+    needs: apply-networking
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-dev-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init
+        working-directory: live/dev/storage
+        run: terraform init -input=false
+      - name: Apply
+        working-directory: live/dev/storage
+        run: terraform apply -input=false -auto-approve
+ 
+  apply-data:
+    needs: [apply-platform, apply-storage]
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:  arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-dev-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init
+        working-directory: live/dev/data
+        run: terraform init -input=false
+      - name: Apply
+        working-directory: live/dev/data
+        run: terraform apply -input=false -auto-approve
+ 
+  apply-edge:
+    needs: apply-data
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-dev-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init
+        working-directory: live/dev/edge
+        run: terraform init -input=false
+      - name: Apply
+        working-directory: live/dev/edge
+        run: terraform apply -input=false -auto-approve

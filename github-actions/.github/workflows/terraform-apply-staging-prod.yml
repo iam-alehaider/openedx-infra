@@ -1,0 +1,228 @@
+name: Terraform Apply — Staging & Prod
+ 
+# Staging and prod NEVER auto-apply. This workflow is triggered manually
+# via workflow_dispatch, selecting environment and layers to apply.
+#
+# Prod additionally requires a named approver configured in the GitHub
+# environment protection rules (Settings → Environments → prod →
+# Required reviewers). The job will pause until approval is granted.
+ 
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options: [staging, prod]
+      layers:
+        description: >
+          Comma-separated list of layers to apply in ORDER.
+          Valid values: networking, platform, storage, data, edge
+          Example: networking,platform,storage
+        required: true
+        default: "networking,platform,storage,data,edge"
+      dry_run:
+        description: "Plan only — do not apply"
+        required: false
+        type: boolean
+        default: false
+ 
+permissions:
+  id-token: write
+  contents: read
+ 
+env:
+  TF_VERSION: "1.7.5"
+  AWS_REGION: "us-east-1"
+ 
+jobs:
+  # ── Validate inputs before touching anything ────────────────────────
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      layers: ${{ steps.parse.outputs.layers }}
+    steps:
+      - name: Parse and validate layer list
+        id: parse
+        run: |
+          VALID_LAYERS="networking platform storage data edge"
+          IFS=',' read -ra REQUESTED <<< "${{ github.event.inputs.layers }}"
+          for layer in "${REQUESTED[@]}"; do
+            layer=$(echo "$layer" | xargs)  # trim whitespace
+            if ! echo "$VALID_LAYERS" | grep -qw "$layer"; then
+              echo "::error::Invalid layer: '$layer'. Valid layers: $VALID_LAYERS"
+              exit 1
+            fi
+          done
+          echo "layers=${{ github.event.inputs.layers }}" >> $GITHUB_OUTPUT
+          echo "✅ Layers validated: ${{ github.event.inputs.layers }}"
+ 
+  # ── networking ──────────────────────────────────────────────────────
+  networking:
+    needs: validate
+    if: contains(github.event.inputs.layers, 'networking')
+    runs-on: ubuntu-latest
+    # GitHub environment protection rules enforce approval for prod
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-${{ github.event.inputs.environment }}-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+ 
+      - name: Init
+        working-directory: live/${{ github.event.inputs.environment }}/networking
+        run: terraform init -input=false
+ 
+      - name: Plan
+        working-directory: live/${{ github.event.inputs.environment }}/networking
+        run: terraform plan -input=false -no-color -out=tfplan
+ 
+      - name: Apply
+        if: github.event.inputs.dry_run == 'false'
+        working-directory: live/${{ github.event.inputs.environment }}/networking
+        run: terraform apply -input=false tfplan
+ 
+  # ── platform (depends on networking) ───────────────────────────────
+  platform:
+    needs: [validate, networking]
+    if: |
+      always() &&
+      contains(github.event.inputs.layers, 'platform') &&
+      (needs.networking.result == 'success' || needs.networking.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-${{ github.event.inputs.environment }}-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init
+        working-directory: live/${{ github.event.inputs.environment }}/platform
+        run: terraform init -input=false
+      - name: Plan
+        working-directory: live/${{ github.event.inputs.environment }}/platform
+        run: terraform plan -input=false -no-color -out=tfplan
+      - name: Apply
+        if: github.event.inputs.dry_run == 'false'
+        working-directory: live/${{ github.event.inputs.environment }}/platform
+        run: terraform apply -input=false tfplan
+ 
+  # ── storage (depends on networking, runs in parallel with platform) ─
+  storage:
+    needs: [validate, networking]
+    if: |
+      always() &&
+      contains(github.event.inputs.layers, 'storage') &&
+      (needs.networking.result == 'success' || needs.networking.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-${{ github.event.inputs.environment }}-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init
+        working-directory: live/${{ github.event.inputs.environment }}/storage
+        run: terraform init -input=false
+      - name: Plan
+        working-directory: live/${{ github.event.inputs.environment }}/storage
+        run: terraform plan -input=false -no-color -out=tfplan
+      - name: Apply
+        if: github.event.inputs.dry_run == 'false'
+        working-directory: live/${{ github.event.inputs.environment }}/storage
+        run: terraform apply -input=false tfplan
+ 
+  # ── data (depends on platform + storage) ───────────────────────────
+  data:
+    needs: [validate, platform, storage]
+    if: |
+      always() &&
+      contains(github.event.inputs.layers, 'data') &&
+      (needs.platform.result == 'success' || needs.platform.result == 'skipped') &&
+      (needs.storage.result == 'success' || needs.storage.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-${{ github.event.inputs.environment }}-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init
+        working-directory: live/${{ github.event.inputs.environment }}/data
+        run: terraform init -input=false
+      - name: Plan
+        working-directory: live/${{ github.event.inputs.environment }}/data
+        run: terraform plan -input=false -no-color -out=tfplan
+      - name: Apply
+        if: github.event.inputs.dry_run == 'false'
+        working-directory: live/${{ github.event.inputs.environment }}/data
+        run: terraform apply -input=false tfplan
+ 
+  # ── edge (depends on data) ─────────────────────────────────────────
+  edge:
+    needs: [validate, data]
+    if: |
+      always() &&
+      contains(github.event.inputs.layers, 'edge') &&
+      (needs.data.result == 'success' || needs.data.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/openedx-${{ github.event.inputs.environment }}-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Init
+        working-directory: live/${{ github.event.inputs.environment }}/edge
+        run: terraform init -input=false
+      - name: Plan
+        working-directory: live/${{ github.event.inputs.environment }}/edge
+        run: terraform plan -input=false -no-color -out=tfplan
+      - name: Apply
+        if: github.event.inputs.dry_run == 'false'
+        working-directory: live/${{ github.event.inputs.environment }}/edge
+        run: |
+          # Edge layer first-apply requires two passes due to ACM cert
+          # validation record creation and CloudFront propagation timing.
+          # If apply fails on first run, re-run this job from the UI.
+          terraform apply -input=false tfplan
+ 
+  # ── Summary ────────────────────────────────────────────────────────
+  summary:
+    needs: [networking, platform, storage, data, edge]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report outcomes
+        run: |
+          echo "## Apply Summary — ${{ github.event.inputs.environment }}"
+          echo "| Layer | Result |"
+          echo "|-------|--------|"
+          echo "| networking | ${{ needs.networking.result }} |"
+          echo "| platform   | ${{ needs.platform.result }} |"
+          echo "| storage    | ${{ needs.storage.result }} |"
+          echo "| data       | ${{ needs.data.result }} |"
+          echo "| edge       | ${{ needs.edge.result }} |"
+ 

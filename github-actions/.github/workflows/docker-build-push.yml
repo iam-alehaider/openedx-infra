@@ -1,0 +1,152 @@
+name: Build & Push Docker Images
+
+# Triggers:
+#   push to main    → build and push with sha- tag (deployed to dev automatically)
+#   tag v*          → build and push with version tag (deployed to prod manually)
+#   pull_request    → build only (no push), validates Dockerfiles are healthy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Dockerfile*'
+      - '.github/workflows/docker-build-push.yml'
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Dockerfile*'
+
+permissions:
+  id-token: write   # OIDC — no static AWS keys stored in GitHub secrets
+  contents: read
+
+env:
+  AWS_REGION: "us-east-1"
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+jobs:
+  # ── Determine image tag from git context ───────────────────────────
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      sha_tag:     ${{ steps.tags.outputs.sha_tag }}
+      version_tag: ${{ steps.tags.outputs.version_tag }}
+      is_release:  ${{ steps.tags.outputs.is_release }}
+      push:        ${{ steps.tags.outputs.push }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute tags
+        id: tags
+        run: |
+          SHA_TAG="sha-$(git rev-parse --short HEAD)"
+          echo "sha_tag=${SHA_TAG}" >> $GITHUB_OUTPUT
+
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+            echo "version_tag=${VERSION}" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "push=true" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            echo "version_tag=" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "push=true" >> $GITHUB_OUTPUT
+          else
+            # pull_request — build but do not push
+            echo "version_tag=" >> $GITHUB_OUTPUT
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "push=false" >> $GITHUB_OUTPUT
+          fi
+
+  # ── Build and push each service image ─────────────────────────────
+  build-push:
+    needs: meta
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: lms
+            dockerfile: Dockerfile.lms
+            context: .
+          - name: cms
+            dockerfile: Dockerfile.cms
+            context: .
+          - name: mfe
+            dockerfile: Dockerfile.mfe
+            context: frontend/
+          - name: notes
+            dockerfile: Dockerfile.notes
+            context: notes/
+          - name: discovery
+            dockerfile: Dockerfile.discovery
+            context: discovery/
+          - name: forum
+            dockerfile: Dockerfile.forum
+            context: forum/
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS credentials (OIDC — no static keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # FIX: uses the ECR push role (not the deploy role)
+          # The push role only allows ecr:PutImage etc., not EKS access
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/openedx-prod-github-ecr-push
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push ${{ matrix.service.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          push: ${{ needs.meta.outputs.push == 'true' }}
+          # Always tag with SHA. Also tag with version on release.
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/openedx/${{ matrix.service.name }}:${{ needs.meta.outputs.sha_tag }}
+            ${{ needs.meta.outputs.is_release == 'true' && format('{0}/openedx/{1}:{2}', steps.login-ecr.outputs.registry, matrix.service.name, needs.meta.outputs.version_tag) || '' }}
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to:   type=gha,scope=${{ matrix.service.name }},mode=max
+          # Build args — adjust per your OpenEdX fork
+          build-args: |
+            OPENEDX_VERSION=palm.master
+            SERVICE_NAME=${{ matrix.service.name }}
+
+      - name: Image vulnerability scan (Trivy)
+        # Only scan on push — PRs already build-only
+        if: needs.meta.outputs.push == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: >-
+            ${{ steps.login-ecr.outputs.registry }}/openedx/${{ matrix.service.name }}:${{ needs.meta.outputs.sha_tag }}
+          format: table
+          exit-code: 0           # warn, not fail — set to 1 to enforce in prod
+          ignore-unfixed: true
+          severity: CRITICAL,HIGH
+
+  # ── Summary ────────────────────────────────────────────────────────
+  summary:
+    needs: [meta, build-push]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print image tags
+        run: |
+          echo "## Docker Build Summary"
+          echo "SHA tag:     ${{ needs.meta.outputs.sha_tag }}"
+          echo "Version tag: ${{ needs.meta.outputs.version_tag }}"
+          echo "Pushed:      ${{ needs.meta.outputs.push }}"
+          echo ""
+          echo "Services built: lms, cms, mfe, notes, discovery, forum"
+          echo "Registry: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/openedx/"

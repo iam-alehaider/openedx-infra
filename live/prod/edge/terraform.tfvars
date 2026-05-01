@@ -2,13 +2,13 @@ project     = "openedx"
 environment = "prod"
 region      = "us-east-1"
 
-root_domain = "yourcompany.com"
-lms_domain  = "learn.yourcompany.com"
-cms_domain  = "studio.yourcompany.com"
+root_domain = "alecloud.site"
+lms_domain  = "learn.alecloud.site"
+cms_domain  = "studio.alecloud.site"
 
 # fill after deploying k8s ingress
 alb_dns_name = "k8s-openedx-xxxx.us-east-1.elb.amazonaws.com"
-alb_arn      = "arn:aws:elasticloadbalancing:us-east-1:123456789:loadbalancer/app/openedx-prod/xxxx"
+alb_arn      = ""
 
 # prod: full global distribution
 price_class                      = "PriceClass_All"
@@ -24,7 +24,7 @@ waf_body_size_restriction_action = "block"   # prod: enforce body size limits
 enable_signed_media_urls = true
 jwt_public_key_ssm_path  = "/openedx/prod/jwt/public-key"
 jwt_public_keys_ssm_path = "" 
-jwt_issuer               = "https://auth.yourcompany.com"
+jwt_issuer               = "https://auth.alecloud.site"
 jwt_audience             = "openedx-api"
 
 cf_log_retention_days     = 30

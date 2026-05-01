@@ -2,7 +2,7 @@ project     = "openedx"
 environment = "staging"
 region      = "us-east-1"
 
-alarm_email = "staging-alerts@yourcompany.com"
+alarm_email = "staging-alerts@alecloud.site"
 
 rds_instance_class               = "db.t3.small"
 rds_multi_az                     = false

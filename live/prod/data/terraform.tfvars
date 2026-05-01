@@ -2,7 +2,7 @@ project     = "openedx"
 environment = "prod"
 region      = "us-east-1"
 
-alarm_email = "prod-alerts@yourcompany.com"
+alarm_email = "prod-alerts@alecloud.site"
 
 # prod: HA database with deletion protection
 rds_instance_class               = "db.t3.large"
@@ -27,10 +27,10 @@ opensearch_volume_size_gb = 100
 
 # fill after platform layer applied
 redis_reader_role_arns = [
-  "arn:aws:iam::123456789012:role/openedx-prod-openedx-s3-role"
+  "arn:aws:iam::119778517587:role/openedx-prod-openedx-s3-role"
 ]
 opensearch_reader_role_arns = [
-  "arn:aws:iam::123456789012:role/openedx-prod-openedx-s3-role"
+  "arn:aws:iam::119778517587:role/openedx-prod-openedx-s3-role"
 ]
 
 tags = {

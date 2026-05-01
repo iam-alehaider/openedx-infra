@@ -2,7 +2,7 @@ project     = "openedx"
 environment = "dev"
 region      = "us-east-1"
 
-alarm_email = "dev-alerts@yourcompany.com"
+alarm_email = "dev-alerts@alecloud.site"
 
 # RDS — dev: cheap, no HA, no protection
 rds_instance_class               = "db.t3.micro"

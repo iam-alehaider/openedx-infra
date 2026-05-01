@@ -2,9 +2,9 @@ project     = "openedx"
 environment = "dev"
 region      = "us-east-1"
 
-root_domain = "yourcompany.com"
-lms_domain  = "dev.learn.yourcompany.com"
-cms_domain  = "dev.studio.yourcompany.com"
+root_domain = "alecloud.site"
+lms_domain  = "dev.learn.alecloud.site"
+cms_domain  = "dev.studio.alecloud.site"
 
 # Fill after deploying Kubernetes ingress — ALB is created by k8s controller
 alb_dns_name = ""

@@ -6,9 +6,9 @@ project     = "openedx"
 environment = "staging"
 region      = "us-east-1"
 
-root_domain = "yourcompany.com"
-lms_domain  = "staging.learn.yourcompany.com"
-cms_domain  = "staging.studio.yourcompany.com"
+root_domain = "alecloud.site"
+lms_domain  = "staging.learn.alecloud.site"
+cms_domain  = "staging.studio.alecloud.site"
 
 alb_dns_name = ""    # fill after deploying k8s ingress
 alb_arn      = ""
@@ -26,7 +26,7 @@ enable_signed_media_urls = true
 jwt_public_key_ssm_path  = "/openedx/staging/jwt/public-key"
 # FIX: this variable was declared in variables.tf but missing from tfvars
 jwt_public_keys_ssm_path = ""    # leave empty; use single key path above
-jwt_issuer               = "https://auth-staging.yourcompany.com"
+jwt_issuer               = "https://auth-staging.alecloud.site"
 jwt_audience             = "openedx-api"
 
 cf_log_retention_days     = 14

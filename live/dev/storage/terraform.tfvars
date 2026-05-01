@@ -4,7 +4,7 @@ region      = "us-east-1"
 
 cors_allowed_origins = [
   "http://localhost:3000",
-  "https://dev.learn.yourcompany.com",
+  "https://dev.learn.alecloud.site",
 ]
 
 tags = {

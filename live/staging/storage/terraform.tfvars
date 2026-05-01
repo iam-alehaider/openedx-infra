@@ -4,8 +4,8 @@ environment = "staging"
 region      = "us-east-1"
 
 cors_allowed_origins = [
-  "https://staging.learn.yourcompany.com",
-  "https://staging.studio.yourcompany.com",
+  "https://staging.learn.alecloud.site",
+  "https://staging.studio.alecloud.site",
 ]
 
 tags = {

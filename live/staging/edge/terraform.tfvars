@@ -33,10 +33,10 @@ cf_log_retention_days     = 14
 waf_s3_log_retention_days = 30
 
 # Fill from account-wide/maintenance outputs after running that layer
-lms_failover_domain  = ""
-lms_failover_zone_id = ""
-cms_failover_domain  = ""
-cms_failover_zone_id = ""
+lms_failover_domain  = "openedx-prod-maintenance-page.s3-website-us-east-1.amazonaws.com"
+lms_failover_zone_id = "Z3AQBSTGFYJSTF"
+cms_failover_domain  = "openedx-prod-maintenance-page.s3-website-us-east-1.amazonaws.com"
+cms_failover_zone_id = "Z3AQBSTGFYJSTF"
 
 # Fill from data layer outputs after apply
 opensearch_endpoint    = ""
